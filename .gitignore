@@ -1,0 +1,19 @@
+# Виртуальное окружение
+Scripts/
+bin/
+lib/
+include/
+pyvenv.cfg
+*.pyc
+__pycache__/
+
+# Логи и временные файлы
+*.log
+*.tmp
+
+# IDE и редакторы
+.vscode/
+.idea/
+
+# Другое
+.DS_Store
