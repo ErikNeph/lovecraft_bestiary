@@ -1,8 +1,12 @@
 from fastapi import FastAPI
-from routers import bestiary
+from database import Base, engine
+from routers import beastiary
 
 app = FastAPI()
-app.include_router(bestiary.router, prefix="/bestiary", tags=["Bestiary"])
+
+Base.metadata.create_all(bind=engine)
+
+app.include_router(beastiary.router, prefix="/beastiary", tags=["Beastiary"])
 
 
 @app.get("/")
