@@ -1,5 +1,6 @@
 from random import choice
 from sqlalchemy import select, func
+from sqlalchemy.sql import asc, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends, HTTPException, Query
 from models.creature import Creature, CreatureDB
@@ -32,9 +33,44 @@ def transform_creature(creature: CreatureDB) -> dict:
 
 
 @router.get("/list")
-async def get_creatures(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(CreatureDB))
+async def get_creatures(
+    sort: str = Query(
+        "name",
+        description="Поле для сортировки: 'name' или 'danger_level'",
+        regex="^(name|danger_level)$",
+    ),
+    order: str = Query(
+        "asc",
+        description="Порядок сортировки: 'asc' (по возрастанию) или 'desc' (по убыванию)",
+        regex="^(asc|desc)$",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """Возвращает список всех существ с возможностью сортировки.
+
+    Args:
+        sort (str): Поле для сортировки: 'name' (имя) или 'danger_level' (уровень опасности). По умолчанию 'name'.
+        order (str): Порядок сортировки: 'asc' (по возрастанию) или 'desc' (по убыванию). По умолчанию 'asc'.
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        dict: Словарь с ключом 'creatures' и списком отсортированных существ.
+
+    Examples:
+        - `/beastiary/list?sort=name&order=asc` - сортировка по имени от А до Я.
+        - `/beastiary/list?sort=danger_level&order=desc` - сортировка по убыванию опасности.
+    """
+    # Определяем поле и порядок сортировки
+    sort_field = {
+        "name": CreatureDB.name,
+        "danger_level": CreatureDB.danger_level
+    }[sort]
+    sort_order = asc if order == "asc" else desc
+    
+    # Выполняем запрос с сортировкой
+    result = await db.execute(select(CreatureDB).order_by(sort_order(sort_field)))
     creatures = result.scalars().all()
+    
     return {"creatures": [transform_creature(c) for c in creatures]}
 
 
@@ -112,7 +148,9 @@ async def get_dangerous_creatures(
         - `/beastiary/dangerous?min=50` - существа с уровнем опасности от 50 до 100.
     """
     result = await db.execute(
-        select(CreatureDB).filter(CreatureDB.danger_level >= min, CreatureDB.danger_level <= max)
+        select(CreatureDB).filter(
+            CreatureDB.danger_level >= min, CreatureDB.danger_level <= max
+        )
     )
     creatures = result.scalars().all()
     return {"dangerous_creatures": [transform_creature(c) for c in creatures]}
