@@ -1,5 +1,6 @@
 from random import choice
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends ,HTTPException
 from models.creature import Creature, CreatureDB
 from database import get_db
@@ -29,22 +30,25 @@ def transform_creature(creature: CreatureDB) -> dict:
 
 
 @router.get("/list")
-def get_creatures(db: Session = Depends(get_db)):
-    creatures = db.query(CreatureDB).all()
+async def get_creatures(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CreatureDB))
+    creatures = result.scalars().all()
     return {"creatures": [transform_creature(c) for c in creatures]}
 
 
 @router.get("/info/{creature_name}")
-def get_creature_info(creature_name: str, db: Session = Depends(get_db)):
-    creature = db.query(CreatureDB).filter(CreatureDB.name == creature_name).first()
+async def get_creature_info(creature_name: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CreatureDB).filter(CreatureDB.name == creature_name))
+    creature = result.scalars().first()
     if not creature:
         raise HTTPException(status_code=404, detail="Существо не найдено в бестиарии!")
     return transform_creature(creature)
 
 
 @router.post("/add")
-def add_creature(creature: Creature, db: Session = Depends(get_db)):
-    db_creature = db.query(CreatureDB).filter(CreatureDB.name == creature.name).first()
+async def add_creature(creature: Creature, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CreatureDB).filter(CreatureDB.name == creature.name))
+    db_creature = result.scalars().first()
     if db_creature:
         raise HTTPException(status_code=400, detail="Это существо уже есть в бестиарии!")
     
@@ -65,30 +69,33 @@ def add_creature(creature: Creature, db: Session = Depends(get_db)):
         video_url=creature.video_url,
     )
     db.add(new_creature)
-    db.commit()
-    db.refresh(new_creature)
+    await db.commit()
+    await db.refresh(new_creature)
     return {"creature": creature.name, "message": "Существо добавлено в бестиарий!"}
 
 
 @router.delete("/remove/{creature_name}")
-def remove_creature(creature_name: str, db: Session = Depends(get_db)):
-    creature = db.query(CreatureDB).filter(CreatureDB.name == creature_name).first()
+async def remove_creature(creature_name: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CreatureDB).filter(CreatureDB.name == creature_name))
+    creature = result.scalars().first()
     if not creature:
         raise HTTPException(status_code=404, detail="Существо не найдено в бестиарии!")
-    db.delete(creature)
-    db.commit()
+    await db.delete(creature)
+    await db.commit()
     return {"message": f"{creature_name} удалён из бестиария!"}
 
 
 @router.get("/dangerous")
-def get_dangerous_creatures(threshold: int = 50, db: Session = Depends(get_db)):
-    creatures = db.query(CreatureDB).filter(CreatureDB.danger_level > threshold).all()
+async def get_dangerous_creatures(threshold: int = 50, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CreatureDB).filter(CreatureDB.danger_level > threshold))
+    creatures = result.scalars().all()
     return {"dangerous_creatures": [transform_creature(c) for c in creatures]}
 
 
 @router.get("/random")
-def get_random_creature(db: Session = Depends(get_db)):
-    creatures = db.query(CreatureDB).all()
+async def get_random_creature(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CreatureDB))
+    creatures = result.scalars().all()
     if not creatures:
         raise HTTPException(status_code=404, detail="Бестиарий пуст!")
     return transform_creature(choice(creatures))
