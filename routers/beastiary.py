@@ -99,3 +99,14 @@ async def get_random_creature(db: AsyncSession = Depends(get_db)):
     if not creatures:
         raise HTTPException(status_code=404, detail="Бестиарий пуст!")
     return transform_creature(choice(creatures))
+
+
+# Маршрут для фильтрации по категориям
+@router.get("/category/{category_name}")
+async def get_creatures_by_category(category_name: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CreatureDB).filter(CreatureDB.category == category_name))
+    creatures = result.scalars().all()
+    
+    if not creatures:
+        raise HTTPException(status_code=404, detail=f"Нет существ в категории '{category_name}'")
+    return {"creatures": [transform_creature(c) for c in creatures]}
