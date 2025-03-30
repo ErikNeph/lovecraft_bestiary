@@ -123,6 +123,28 @@ async def get_creatures_by_category(
     return {"creatures": [transform_creature(c) for c in creatures]}
 
 
+@router.get("/categories")
+async def get_categories(db: AsyncSession = Depends(get_db)):
+    """Возвращает список всех категорий и количество существ в каждой.
+
+    Args:
+        db (AsyncSession): Асинхронная сессия для базы данных.
+
+    Returns:
+        dict: Словарь с ключом 'categories' и список категорий с их количеством.
+    """
+    # Группируем по категории и считаем количество
+    result = await db.execute(
+        select(CreatureDB.category, func.count(CreatureDB.id).label("count"))
+        .group_by(CreatureDB.category)
+    )
+    categories = result.all()
+    
+    return {
+        "categories": [{"name": category, "count": count} for category, count in categories]
+    }
+
+
 @router.get("/dangerous")
 async def get_dangerous_creatures(
     min: int = Query(
