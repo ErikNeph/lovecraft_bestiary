@@ -53,18 +53,20 @@ async def get_creature_info(creature_name: str, db: AsyncSession = Depends(get_d
 @router.get("/search")
 async def search_creatures(
     q: str = Query(..., min_length=1, description="Поисковый запрос"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     query_lower = q.lower()
-    
+
     # Ищем существ по частичному совпадению имени
     result = await db.execute(
         select(CreatureDB).filter(func.lower(CreatureDB.name).like(f"%{query_lower}%"))
     )
     creatures = result.scalars().all()
-    
+
     if not creatures:
-        raise HTTPException(status_code=404, detail=f"Существа с именем, содержащим '{q}', не найдены")
+        raise HTTPException(
+            status_code=404, detail=f"Существа с именем, содержащим '{q}', не найдены"
+        )
     return {"creatures": [transform_creature(c) for c in creatures]}
 
 
@@ -87,10 +89,30 @@ async def get_creatures_by_category(
 
 @router.get("/dangerous")
 async def get_dangerous_creatures(
-    threshold: int = 50, db: AsyncSession = Depends(get_db)
+    min: int = Query(
+        0, ge=0, le=100, description="Минимальный уровень опасности (включительно)"
+    ),
+    max: int = Query(
+        100, ge=0, le=100, description="Максимальный уровень опасности (включительно)"
+    ),
+    db: AsyncSession = Depends(get_db),
 ):
+    """Получает список существ с уровнем опасности в заданном диапазоне.
+
+    Args:
+        min (int): Минимальный уровень опасности (по умолчанию 0).
+        max (int): Максимальный уровень опасности (по умолчанию 100).
+        db (AsyncSession): Асинхронная сессия базы данных (внедряется через Depends).
+
+    Returns:
+        dict: Словарь с ключом 'dangerous_creatures' и списком существ в диапазоне.
+
+    Examples:
+        - `/beastiary/dangerous?min=80&max=100` - существа с уровнем опасности от 80 до 100.
+        - `/beastiary/dangerous?min=50` - существа с уровнем опасности от 50 до 100.
+    """
     result = await db.execute(
-        select(CreatureDB).filter(CreatureDB.danger_level > threshold)
+        select(CreatureDB).filter(CreatureDB.danger_level >= min, CreatureDB.danger_level <= max)
     )
     creatures = result.scalars().all()
     return {"dangerous_creatures": [transform_creature(c) for c in creatures]}
@@ -140,27 +162,45 @@ async def add_creature(creature: Creature, db: AsyncSession = Depends(get_db)):
 
 @router.put("/update/{creature_name}")
 async def update_creature(
-    creature_name: str,
-    creature: Creature,
-    db: AsyncSession = Depends(get_db)    
+    creature_name: str, creature: Creature, db: AsyncSession = Depends(get_db)
 ):
+    """Обновляет данные существа в бестиарии по его имени.
+
+    Args:
+        creature_name (str): Имя существа для обновления (например, "Азатот").
+        creature (Creature): Объект с новыми данными существа (Pydantic модель).
+        db (AsyncSession): Асинхронная сессия базы данных (внедряется через Depends).
+
+    Returns:
+        dict: Словарь с сообщением об успехе и обновлёнными данными существа.
+
+    Raises:
+        HTTPException: Если существо с указанным именем не найдено (404).
+    """
     # Ищем существо по имени
-    result = await db.execute(select(CreatureDB).filter(CreatureDB.name == creature_name))
+    result = await db.execute(
+        select(CreatureDB).filter(CreatureDB.name == creature_name)
+    )
     db_creature = result.scalars().first()
-    
+
     if not db_creature:
-        raise HTTPException(status_code=404, detail=f"Существо '{creature_name}' не найдено!")
-    
+        raise HTTPException(
+            status_code=404, detail=f"Существо '{creature_name}' не найдено!"
+        )
+
     # Обновляем поля если только они переданы
     for key, value in creature.model_dump(exclude_unset=True).items():
         if key in ["abilities", "related_works", "relations"]:
             setattr(db_creature, key, ",".join(value))
         else:
             setattr(db_creature, key, value)
-    
+
     await db.commit()
     await db.refresh(db_creature)
-    return {"message": f"Существо '{creature_name}' обновлено", "creture": transform_creature(db_creature)}
+    return {
+        "message": f"Существо '{creature_name}' обновлено",
+        "creture": transform_creature(db_creature),
+    }
 
 
 @router.delete("/remove/{creature_name}")
