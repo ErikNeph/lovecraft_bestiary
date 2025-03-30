@@ -49,6 +49,62 @@ async def get_creature_info(creature_name: str, db: AsyncSession = Depends(get_d
     return transform_creature(creature)
 
 
+# Маршрут для поиска по имени
+@router.get("/search")
+async def search_creatures(
+    q: str = Query(..., min_length=1, description="Поисковый запрос"),
+    db: AsyncSession = Depends(get_db)
+):
+    query_lower = q.lower()
+    
+    # Ищем существ по частичному совпадению имени
+    result = await db.execute(
+        select(CreatureDB).filter(func.lower(CreatureDB.name).like(f"%{query_lower}%"))
+    )
+    creatures = result.scalars().all()
+    
+    if not creatures:
+        raise HTTPException(status_code=404, detail=f"Существа с именем, содержащим '{q}', не найдены")
+    return {"creatures": [transform_creature(c) for c in creatures]}
+
+
+# Маршрут для фильтрации по категориям
+@router.get("/category/{category_name}")
+async def get_creatures_by_category(
+    category_name: str, db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(CreatureDB).filter(CreatureDB.category == category_name)
+    )
+    creatures = result.scalars().all()
+
+    if not creatures:
+        raise HTTPException(
+            status_code=404, detail=f"Нет существ в категории '{category_name}'"
+        )
+    return {"creatures": [transform_creature(c) for c in creatures]}
+
+
+@router.get("/dangerous")
+async def get_dangerous_creatures(
+    threshold: int = 50, db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(CreatureDB).filter(CreatureDB.danger_level > threshold)
+    )
+    creatures = result.scalars().all()
+    return {"dangerous_creatures": [transform_creature(c) for c in creatures]}
+
+
+@router.get("/random")
+async def get_random_creature(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CreatureDB))
+    creatures = result.scalars().all()
+    if not creatures:
+        raise HTTPException(status_code=404, detail="Бестиарий пуст!")
+    return transform_creature(choice(creatures))
+
+
 @router.post("/add")
 async def add_creature(creature: Creature, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -82,6 +138,31 @@ async def add_creature(creature: Creature, db: AsyncSession = Depends(get_db)):
     return {"creature": creature.name, "message": "Существо добавлено в бестиарий!"}
 
 
+@router.put("/update/{creature_name}")
+async def update_creature(
+    creature_name: str,
+    creature: Creature,
+    db: AsyncSession = Depends(get_db)    
+):
+    # Ищем существо по имени
+    result = await db.execute(select(CreatureDB).filter(CreatureDB.name == creature_name))
+    db_creature = result.scalars().first()
+    
+    if not db_creature:
+        raise HTTPException(status_code=404, detail=f"Существо '{creature_name}' не найдено!")
+    
+    # Обновляем поля если только они переданы
+    for key, value in creature.model_dump(exclude_unset=True).items():
+        if key in ["abilities", "related_works", "relations"]:
+            setattr(db_creature, key, ",".join(value))
+        else:
+            setattr(db_creature, key, value)
+    
+    await db.commit()
+    await db.refresh(db_creature)
+    return {"message": f"Существо '{creature_name}' обновлено", "creture": transform_creature(db_creature)}
+
+
 @router.delete("/remove/{creature_name}")
 async def remove_creature(creature_name: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -93,59 +174,3 @@ async def remove_creature(creature_name: str, db: AsyncSession = Depends(get_db)
     await db.delete(creature)
     await db.commit()
     return {"message": f"{creature_name} удалён из бестиария!"}
-
-
-@router.get("/dangerous")
-async def get_dangerous_creatures(
-    threshold: int = 50, db: AsyncSession = Depends(get_db)
-):
-    result = await db.execute(
-        select(CreatureDB).filter(CreatureDB.danger_level > threshold)
-    )
-    creatures = result.scalars().all()
-    return {"dangerous_creatures": [transform_creature(c) for c in creatures]}
-
-
-@router.get("/random")
-async def get_random_creature(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(CreatureDB))
-    creatures = result.scalars().all()
-    if not creatures:
-        raise HTTPException(status_code=404, detail="Бестиарий пуст!")
-    return transform_creature(choice(creatures))
-
-
-# Маршрут для фильтрации по категориям
-@router.get("/category/{category_name}")
-async def get_creatures_by_category(
-    category_name: str, db: AsyncSession = Depends(get_db)
-):
-    result = await db.execute(
-        select(CreatureDB).filter(CreatureDB.category == category_name)
-    )
-    creatures = result.scalars().all()
-
-    if not creatures:
-        raise HTTPException(
-            status_code=404, detail=f"Нет существ в категории '{category_name}'"
-        )
-    return {"creatures": [transform_creature(c) for c in creatures]}
-
-
-# Маршрут для поиска по имени
-@router.get("/search")
-async def search_creatures(
-    q: str = Query(..., min_length=1, description="Поисковый запрос"),
-    db: AsyncSession = Depends(get_db)
-):
-    query_lower = q.lower()
-    
-    # Ищем существ по частичному совпадению имени
-    result = await db.execute(
-        select(CreatureDB).filter(func.lower(CreatureDB.name).like(f"%{query_lower}%"))
-    )
-    creatures = result.scalars().all()
-    
-    if not creatures:
-        raise HTTPException(status_code=404, detail=f"Существа с именем, содержащим '{q}', не найдены")
-    return {"creatures": [transform_creature(c) for c in creatures]}
