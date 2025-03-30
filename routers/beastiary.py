@@ -61,16 +61,15 @@ async def get_creatures(
         - `/beastiary/list?sort=danger_level&order=desc` - сортировка по убыванию опасности.
     """
     # Определяем поле и порядок сортировки
-    sort_field = {
-        "name": CreatureDB.name,
-        "danger_level": CreatureDB.danger_level
-    }[sort]
+    sort_field = {"name": CreatureDB.name, "danger_level": CreatureDB.danger_level}[
+        sort
+    ]
     sort_order = asc if order == "asc" else desc
-    
+
     # Выполняем запрос с сортировкой
     result = await db.execute(select(CreatureDB).order_by(sort_order(sort_field)))
     creatures = result.scalars().all()
-    
+
     return {"creatures": [transform_creature(c) for c in creatures]}
 
 
@@ -135,13 +134,16 @@ async def get_categories(db: AsyncSession = Depends(get_db)):
     """
     # Группируем по категории и считаем количество
     result = await db.execute(
-        select(CreatureDB.category, func.count(CreatureDB.id).label("count"))
-        .group_by(CreatureDB.category)
+        select(CreatureDB.category, func.count(CreatureDB.id).label("count")).group_by(
+            CreatureDB.category
+        )
     )
     categories = result.all()
-    
+
     return {
-        "categories": [{"name": category, "count": count} for category, count in categories]
+        "categories": [
+            {"name": category, "count": count} for category, count in categories
+        ]
     }
 
 
@@ -179,12 +181,45 @@ async def get_dangerous_creatures(
 
 
 @router.get("/random")
-async def get_random_creature(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(CreatureDB))
+async def get_random_creature(
+    category: str = Query(
+        None, description="Категория для случайного выбора (например, 'Внешний Бог')"
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """Возвращает случайное существо из бестиария, опционально из указанной категории.
+
+    Args:
+        category (str, optional): Категория для фильтрации (например, 'Монстр', 'Внешний Бог'). Если не указана, выбирается из всех существ.
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        dict: Словарь с данными случайного существа.
+
+    Raises:
+        HTTPException: Если бестиарий пуст или в категории нет существ (404).
+
+    Examples:
+        - `/beastiary/random` - случайное существо из всех.
+        - `/beastiary/random?category=Внешний Бог` - случайный Внешний Бог.
+    """
+    # Формируем запрос в зависимости от наличия категории
+    if category:
+        result = await db.execute(
+            select(CreatureDB).filter(CreatureDB.category == category)
+        )
+    else:
+        result = await db.execute(select(CreatureDB))
+
     creatures = result.scalars().all()
+    
     if not creatures:
-        raise HTTPException(status_code=404, detail="Бестиарий пуст!")
-    return transform_creature(choice(creatures))
+        if category:
+            raise HTTPException(status_code=404, detail=f"В категории '{category}' нет существ!")
+        raise HTTPException(status_code=404, detail="Бестиарий пуст")
+    
+    random_creature = choice(creatures)
+    return transform_creature(random_creature)
 
 
 @router.post("/add")
