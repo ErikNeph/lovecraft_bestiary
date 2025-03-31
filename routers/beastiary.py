@@ -70,7 +70,7 @@ async def get_creatures(
     result = await db.execute(select(CreatureDB).order_by(sort_order(sort_field)))
     creatures = result.scalars().all()
 
-    return {"creatures": [transform_creature(c) for c in creatures]}
+    return {"Существа": [transform_creature(c) for c in creatures]}
 
 
 @router.get("/info/{creature_name}")
@@ -87,22 +87,50 @@ async def get_creature_info(creature_name: str, db: AsyncSession = Depends(get_d
 # Маршрут для поиска по имени
 @router.get("/search")
 async def search_creatures(
-    q: str = Query(..., min_length=1, description="Поисковый запрос"),
+    q: str = Query(None, min_length=1, description="Поиск по имени (начало имени)"),
+    category: str = Query(None, description="Фильтр по категории"),
+    min_danger: int = Query(None, ge=0, le=100, description="Минимальный уровень опасности"),
+    max_danger: int = Query(None, ge=0, le=100, description="Максимальный уровень опасности"),
     db: AsyncSession = Depends(get_db),
 ):
-    query_lower = q.lower()
+    """Ищем существ по имени, категории и/или уровню опасности.
 
-    # Ищем существ по частичному совпадению имени
-    result = await db.execute(
-        select(CreatureDB).filter(func.lower(CreatureDB.name).like(f"%{query_lower}%"))
-    )
+    Args:
+        q (str, optional): Поиск по началу имени.
+        category (str, optional): Фильтр по категории.
+        min_danger (int, optional): Минимальный уровень опасности.
+        max_danger (int, optional): Максимальный уровень опасности.
+        db (AsyncSession: Асинхронная сессия базы данных.
+
+    Returns:
+        dict: Словарь с ключом 'существа' и список найденных существ.
+
+    Raises:
+        HTTPException: Если ничего не найдено (ошибка 404).
+    """
+    query = select(CreatureDB)
+
+    # Фильтр по имени 
+    if q:
+        query = query.filter(func.lower(CreatureDB.name).like(f"{q.lower()}%"))
+
+    # Фильтр по категории
+    if category:
+        query = query.filter(CreatureDB.category == category)
+
+    # Фильтро по уровню опасности
+    if min_danger is not None:
+        query = query.filter(CreatureDB.danger_level >= min_danger)
+    if max_danger is not None:
+        query = query.filter(CreatureDB.danger_level <= max_danger)
+
+    result = await db.execute(query)
     creatures = result.scalars().all()
-
+    
     if not creatures:
-        raise HTTPException(
-            status_code=404, detail=f"Существа с именем, содержащим '{q}', не найдены"
-        )
-    return {"creatures": [transform_creature(c) for c in creatures]}
+        raise HTTPException(status_code=404, detail="Существа с заданным фильтрам не найдены")
+
+    return {"Существа": [transform_creature(c) for c in creatures]}
 
 
 # Маршрут для фильтрации по категориям
@@ -119,7 +147,7 @@ async def get_creatures_by_category(
         raise HTTPException(
             status_code=404, detail=f"Нет существ в категории '{category_name}'"
         )
-    return {"creatures": [transform_creature(c) for c in creatures]}
+    return {"Существа": [transform_creature(c) for c in creatures]}
 
 
 @router.get("/categories")
@@ -142,7 +170,7 @@ async def get_categories(db: AsyncSession = Depends(get_db)):
 
     return {
         "categories": [
-            {"name": category, "count": count} for category, count in categories
+            {"Имя": category, "Количество": count} for category, count in categories
         ]
     }
 
@@ -177,7 +205,7 @@ async def get_dangerous_creatures(
         )
     )
     creatures = result.scalars().all()
-    return {"dangerous_creatures": [transform_creature(c) for c in creatures]}
+    return {"Опасные существа": [transform_creature(c) for c in creatures]}
 
 
 @router.get("/random")
@@ -221,7 +249,7 @@ async def get_random_creature(
         raise HTTPException(status_code=404, detail="Бестиарий пуст")
 
     random_creature = choice(creatures)
-    return transform_creature(random_creature)
+    return {"Существо": transform_creature(random_creature)}
 
 
 @router.get("/stats")
@@ -310,7 +338,7 @@ async def add_creature(creature: Creature, db: AsyncSession = Depends(get_db)):
     db.add(new_creature)
     await db.commit()
     await db.refresh(new_creature)
-    return {"creature": creature.name, "message": "Существо добавлено в бестиарий!"}
+    return {"Существо": creature.name, "message": "Существо добавлено в бестиарий!"}
 
 
 @router.put("/update/{creature_name}")
@@ -351,8 +379,8 @@ async def update_creature(
     await db.commit()
     await db.refresh(db_creature)
     return {
-        "message": f"Существо '{creature_name}' обновлено",
-        "creture": transform_creature(db_creature),
+        "Сообщение": f"Существо '{creature_name}' обновлено",
+        "Существо": transform_creature(db_creature),
     }
 
 
@@ -366,4 +394,4 @@ async def remove_creature(creature_name: str, db: AsyncSession = Depends(get_db)
         raise HTTPException(status_code=404, detail="Существо не найдено в бестиарии!")
     await db.delete(creature)
     await db.commit()
-    return {"message": f"{creature_name} удалён из бестиария!"}
+    return {"Сообщение": f"{creature_name} удалён из бестиария!"}
