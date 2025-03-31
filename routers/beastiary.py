@@ -12,6 +12,7 @@ from database import get_db
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def transform_creature(creature: CreatureDB, for_csv: bool = False) -> dict:
@@ -97,9 +98,9 @@ async def export_bestiary(
     export_data_json = [transform_creature(c, for_csv=False) for c in creatures]
     export_data_csv = [transform_creature(c, for_csv=True) for c in creatures]
 
-    logging.info(f"Export data length: {len(export_data_json)}")
+    logger.info(f"Export data length: {len(export_data_json)}")
     if export_data_json:
-        logging.info(f"First item type: {type(export_data_json[0])}")
+        logger.info(f"First item type: {type(export_data_json[0])}")
 
     if format == "json":
         return JSONResponse(
@@ -146,44 +147,45 @@ async def export_bestiary(
 
 
 @router.get("/list")
-async def get_creatures(
-    sort: str = Query(
-        "name",
-        description="Поле для сортировки: 'name' или 'danger_level'",
-        regex="^(name|danger_level)$",
-    ),
-    order: str = Query(
-        "asc",
-        description="Порядок сортировки: 'asc' (по возрастанию) или 'desc' (по убыванию)",
-        regex="^(asc|desc)$",
-    ),
-    db: AsyncSession = Depends(get_db),
+async def list_bestiary(
+    limit: int = Query(10, ge=1, le=100, description="Количество записей на странице (максимум 100)"),
+    offset: int = Query(0, ge=0, description="Смещение (с какой записи начинать)"),
+    db: AsyncSession = Depends(get_db)
 ):
-    """Возвращает список всех существ с возможностью сортировки.
+    """Возвращает список существ из бестиария с пагинацией.
 
     Args:
-        sort (str): Поле для сортировки: 'name' (имя) или 'danger_level' (уровень опасности). По умолчанию 'name'.
-        order (str): Порядок сортировки: 'asc' (по возрастанию) или 'desc' (по убыванию). По умолчанию 'asc'.
-        db (AsyncSession): Асинхронная сессия базы данных.
+        limit (int, optional): Количество записей на странице. Должны быть от 1 до 100 по умолчанию 10.
+        offset (int, optional): Смещение (с какой записи начинать). Должно быть >= 0. По умолчанию 0.
+        db (AsyncSession, optional): Сессия базы данных, предоставляемая через зависимость.
 
     Returns:
-        dict: Словарь с ключом 'creatures' и списком отсортированных существ.
-
-    Examples:
-        - `/beastiary/list?sort=name&order=asc` - сортировка по имени от А до Я.
-        - `/beastiary/list?sort=danger_level&order=desc` - сортировка по убыванию опасности.
+        dict: Словарь с ключами:
+            - "Существа": список существ в формате JSON.
+            - "Всего": общее количество существ в бестиарии.
+            - "Лимит": текущий лимит записей.
+            - "Смещение": текущие смещение.
+    
+    Raises:
+        HTTPException: Если существа не найдены (404).
     """
-    # Определяем поле и порядок сортировки
-    sort_field = {"name": CreatureDB.name, "danger_level": CreatureDB.danger_level}[
-        sort
-    ]
-    sort_order = asc if order == "asc" else desc
-
-    # Выполняем запрос с сортировкой
-    result = await db.execute(select(CreatureDB).order_by(sort_order(sort_field)))
+    count_query = await db.execute(select(CreatureDB).with_only_columns(func.count()))
+    total_count = count_query.scalar()
+    
+    # Получаем записи с пагинацей
+    result = await db.execute(select(CreatureDB).limit(limit).offset(offset))
     creatures = result.scalars().all()
-
-    return {"Существа": [transform_creature(c) for c in creatures]}
+    
+    if not creatures:
+        raise HTTPException(status_code=404, detail="Существа не найдены")
+    
+    logger.info(f"Возвращено {len(creatures)} существ на бестиария с limit={limit}, offset={offset}")
+    return {
+        "Существа": [transform_creature(c) for c in creatures],
+        "Всего": total_count,
+        "Лимит": limit,
+        "Смещение": offset
+    }
 
 
 @router.get("/info/{creature_name}")
@@ -387,10 +389,8 @@ async def get_beastiary_stats(db: AsyncSession = Depends(get_db)):
     """
     # Получаем общее число существ
     total_count = await db.scalar(select(func.count(CreatureDB.id)))
-
     # Получаем средний уровень опасности
     avg_danger = await db.scalar(select(func.avg(CreatureDB.danger_level)))
-
     # Получаем самое безопасное существо
     least_dangerous_result = await db.execute(
         select(CreatureDB.name, CreatureDB.danger_level)
@@ -406,6 +406,14 @@ async def get_beastiary_stats(db: AsyncSession = Depends(get_db)):
         .limit(1)
     )
     most_dangerous = most_dangerous_result.first()
+
+    if total_count == 0:
+        return {
+            "Общее количество существ": 0,
+            "Средний уровень опасности": 0.0,
+            "Самое безопасное существо": None,
+            "Самое опасное существо": None,
+        }
 
     stats = {
         "Общее количество существ": total_count or 0,
@@ -461,7 +469,7 @@ async def add_creature(creature: Creature, db: AsyncSession = Depends(get_db)):
     db.add(new_creature)
     await db.commit()
     await db.refresh(new_creature)
-    return {"Существо": creature.name, "message": "Существо добавлено в бестиарий!"}
+    return {"Существо": creature.name, "Сообщение": "Существо добавлено в бестиарий!"}
 
 
 @router.put("/update/{creature_name}")
