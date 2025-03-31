@@ -1,8 +1,11 @@
+import csv
+from io import StringIO
 from random import choice
 from sqlalchemy import select, func
 from sqlalchemy.sql import asc, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse, Response
 from models.creature import Creature, CreatureDB
 from database import get_db
 
@@ -11,25 +14,107 @@ router = APIRouter()
 
 def transform_creature(creature: CreatureDB) -> dict:
     """Преобразует строковые поля в списки."""
+
+    def clean_string(text):
+        """Для очистки строк от лишних \n"""
+        if isinstance(text, str):
+            return text.replace("\n", " ").strip()
+        return text
+
     return {
-        "id": creature.id,
-        "name": creature.name,
-        "description": creature.description,
-        "danger_level": creature.danger_level,
-        "habitat": creature.habitat,
-        "quote": creature.quote,
-        "category": creature.category,
-        "abilities": creature.abilities.split(",") if creature.abilities else [],
-        "related_works": creature.related_works.split(",")
-        if creature.related_works
-        else [],
-        "image_url": creature.image_url,
-        "status": creature.status,
-        "min_insanity": creature.min_insanity,
-        "relations": creature.relations.split(",") if creature.relations else [],
-        "audio_url": creature.audio_url,
-        "video_url": creature.video_url,
+        "Id": creature.id,
+        "Имя": clean_string(creature.name),
+        "Описание": clean_string(creature.description),
+        "Уровень_опасности": creature.danger_level,
+        "Среда_обитания": clean_string(creature.habitat),
+        "Цитата": clean_string(creature.quote),
+        "Категория": clean_string(creature.category),
+        "Способности": ", ".join(
+            [
+                clean_string(ability)
+                for ability in (
+                    creature.abilities.split(",") if creature.abilities else []
+                )
+            ]
+        ),
+        "Связанные_произведения": ", ".join(
+            [
+                clean_string(work)
+                for work in (
+                    creature.related_works.split(",") if creature.related_works else []
+                )
+            ]
+        ),
+        "Url_изображения": creature.image_url,
+        "Статус": clean_string(creature.status),
+        "Минимальное_безумие": creature.min_insanity,
+        "Связи": ", ".join(
+            [
+                clean_string(relation)
+                for relation in (
+                    creature.relations.split(",") if creature.relations else []
+                )
+            ]
+        ),
+        "Url_аудио": creature.audio_url,
+        "Url_видео": creature.video_url,
     }
+
+
+@router.get("/export")
+async def export_bestiary(
+    format: str = Query(
+        "json", description="Формат экспорта: 'json' или 'csv'", regex="^(json|csv)$"
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """Экспортируем всех существ из бестиария в формат JSON или CSV.
+
+    Args:
+        format (str): Формат экспорта: 'json' или 'csv'. По умолчанию 'json'.
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        JSONResponse: Файл с данными всех существ для скачивания (с отступами).
+
+    Examples:
+        - `/beastiary/export` - возвращает JSON-файл со всеми существами.
+    """
+# Получаем всех существ
+    result = await db.execute(select(CreatureDB))
+    creatures = result.scalars().all()
+    
+    # Преобразуем в список словарей
+    export_data = [transform_creature(c) for c in creatures]
+    
+    # Отладочный вывод
+    print(f"Export data: {export_data}")
+    print(f"Export data length: {len(export_data)}")
+    if export_data:
+        print(f"First item type: {type(export_data[0])}")
+
+    if format == "json":
+        return JSONResponse(
+            content={"Существа": export_data},
+            headers={"Content-Disposition": "attachment; filename=bestiary_export.json"},
+            media_type="application/json"
+        )
+    elif format == "csv":
+        # Создаём CSV в памяти
+        output = StringIO()
+        fieldnames = ["Id", "Имя", "Описание", "Уровень_опасности", "Среда_обитания", "Цитата", "Категория", "Способности", "Связанные_произведения", "Url_изображения", "Статус", "Минимальное_безумие", "Связи", "Url_аудио", "Url_видео"]
+        writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
+        writer.writeheader()
+        
+        # Записываем данные, если они есть
+        if export_data:
+            writer.writerows(export_data)
+        
+        return Response(
+            content=output.getvalue(),
+            headers={"Content-Disposition": "attachment; filename=bestiary_export.csv"},
+            media_type="text/csv"
+        )
 
 
 @router.get("/list")
@@ -89,8 +174,12 @@ async def get_creature_info(creature_name: str, db: AsyncSession = Depends(get_d
 async def search_creatures(
     q: str = Query(None, min_length=1, description="Поиск по имени (начало имени)"),
     category: str = Query(None, description="Фильтр по категории"),
-    min_danger: int = Query(None, ge=0, le=100, description="Минимальный уровень опасности"),
-    max_danger: int = Query(None, ge=0, le=100, description="Максимальный уровень опасности"),
+    min_danger: int = Query(
+        None, ge=0, le=100, description="Минимальный уровень опасности"
+    ),
+    max_danger: int = Query(
+        None, ge=0, le=100, description="Максимальный уровень опасности"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Ищем существ по имени, категории и/или уровню опасности.
@@ -110,7 +199,7 @@ async def search_creatures(
     """
     query = select(CreatureDB)
 
-    # Фильтр по имени 
+    # Фильтр по имени
     if q:
         query = query.filter(func.lower(CreatureDB.name).like(f"{q.lower()}%"))
 
@@ -126,9 +215,11 @@ async def search_creatures(
 
     result = await db.execute(query)
     creatures = result.scalars().all()
-    
+
     if not creatures:
-        raise HTTPException(status_code=404, detail="Существа с заданным фильтрам не найдены")
+        raise HTTPException(
+            status_code=404, detail="Существа с заданным фильтрам не найдены"
+        )
 
     return {"Существа": [transform_creature(c) for c in creatures]}
 
@@ -291,18 +382,22 @@ async def get_beastiary_stats(db: AsyncSession = Depends(get_db)):
     stats = {
         "Общее количество существ": total_count or 0,
         "Средний уровень опасности": round(float(avg_danger), 1) if avg_danger else 0.0,
-        "Самое безопасное существо": {
-            "Имя": least_dangerous.name,
-            "Уровень опасности": least_dangerous.danger_level,
-        }
-        if least_dangerous
-        else None,
-        "Самое опасное существо": {
-            "Имя": most_dangerous.name,
-            "Уровень опасности": most_dangerous.danger_level,
-        }
-        if most_dangerous
-        else None,
+        "Самое безопасное существо": (
+            {
+                "Имя": least_dangerous.name,
+                "Уровень опасности": least_dangerous.danger_level,
+            }
+            if least_dangerous
+            else None
+        ),
+        "Самое опасное существо": (
+            {
+                "Имя": most_dangerous.name,
+                "Уровень опасности": most_dangerous.danger_level,
+            }
+            if most_dangerous
+            else None
+        ),
     }
 
     return stats
