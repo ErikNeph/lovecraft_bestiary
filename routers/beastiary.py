@@ -1,4 +1,5 @@
 import csv
+import logging
 from io import StringIO
 from random import choice
 from sqlalchemy import select, func
@@ -9,10 +10,11 @@ from fastapi.responses import JSONResponse, Response
 from models.creature import Creature, CreatureDB
 from database import get_db
 
+
 router = APIRouter()
 
 
-def transform_creature(creature: CreatureDB) -> dict:
+def transform_creature(creature: CreatureDB, for_csv: bool = False) -> dict:
     """Преобразует строковые поля в списки."""
 
     def clean_string(text):
@@ -21,7 +23,23 @@ def transform_creature(creature: CreatureDB) -> dict:
             return text.replace("\n", " ").strip()
         return text
 
-    return {
+    # Разбиваем строки на списки, если они не пустые
+    abilities = [
+        clean_string(ability)
+        for ability in (creature.abilities.split(",") if creature.abilities else [])
+    ]
+    related_works = [
+        clean_string(work)
+        for work in (
+            creature.related_works.split(",") if creature.related_works else []
+        )
+    ]
+    relations = [
+        clean_string(relation)
+        for relation in (creature.relations.split(",") if creature.relations else [])
+    ]
+
+    data = {
         "Id": creature.id,
         "Имя": clean_string(creature.name),
         "Описание": clean_string(creature.description),
@@ -29,36 +47,27 @@ def transform_creature(creature: CreatureDB) -> dict:
         "Среда_обитания": clean_string(creature.habitat),
         "Цитата": clean_string(creature.quote),
         "Категория": clean_string(creature.category),
-        "Способности": ", ".join(
-            [
-                clean_string(ability)
-                for ability in (
-                    creature.abilities.split(",") if creature.abilities else []
-                )
-            ]
-        ),
-        "Связанные_произведения": ", ".join(
-            [
-                clean_string(work)
-                for work in (
-                    creature.related_works.split(",") if creature.related_works else []
-                )
-            ]
-        ),
+        "Способности": abilities,
+        "Связанные_произведения": related_works,
         "Url_изображения": creature.image_url,
         "Статус": clean_string(creature.status),
         "Минимальное_безумие": creature.min_insanity,
-        "Связи": ", ".join(
-            [
-                clean_string(relation)
-                for relation in (
-                    creature.relations.split(",") if creature.relations else []
-                )
-            ]
-        ),
+        "Связи": relations,
         "Url_аудио": creature.audio_url,
         "Url_видео": creature.video_url,
     }
+    # Для JSON оставляем списки как есть, для CSV преобразуем в строки
+    if not for_csv:
+        data["Способности"] = (
+            ", ".join(data["Способности"]) if data["Способности"] else ""
+        )
+        data["Связанные_произведения"] = (
+            ", ".join(data["Связанные_произведения"])
+            if data["Связанные_произведения"]
+            else ""
+        )
+        data["Связи"] = ", ".join(data["Связи"]) if data["Связи"] else ""
+    return data
 
 
 @router.get("/export")
@@ -80,40 +89,59 @@ async def export_bestiary(
     Examples:
         - `/beastiary/export` - возвращает JSON-файл со всеми существами.
     """
-# Получаем всех существ
+    # Получаем всех существ
     result = await db.execute(select(CreatureDB))
     creatures = result.scalars().all()
-    
+
     # Преобразуем в список словарей
-    export_data = [transform_creature(c) for c in creatures]
-    
-    # Отладочный вывод
-    print(f"Export data: {export_data}")
-    print(f"Export data length: {len(export_data)}")
-    if export_data:
-        print(f"First item type: {type(export_data[0])}")
+    export_data_json = [transform_creature(c, for_csv=False) for c in creatures]
+    export_data_csv = [transform_creature(c, for_csv=True) for c in creatures]
+
+    logging.info(f"Export data length: {len(export_data_json)}")
+    if export_data_json:
+        logging.info(f"First item type: {type(export_data_json[0])}")
 
     if format == "json":
         return JSONResponse(
-            content={"Существа": export_data},
-            headers={"Content-Disposition": "attachment; filename=bestiary_export.json"},
-            media_type="application/json"
+            content={"Существа": export_data_json},
+            headers={
+                "Content-Disposition": "attachment; filename=bestiary_export.json"
+            },
+            media_type="application/json",
         )
     elif format == "csv":
         # Создаём CSV в памяти
         output = StringIO()
-        fieldnames = ["Id", "Имя", "Описание", "Уровень_опасности", "Среда_обитания", "Цитата", "Категория", "Способности", "Связанные_произведения", "Url_изображения", "Статус", "Минимальное_безумие", "Связи", "Url_аудио", "Url_видео"]
+        fieldnames = [
+            "Id",
+            "Имя",
+            "Описание",
+            "Уровень_опасности",
+            "Среда_обитания",
+            "Цитата",
+            "Категория",
+            "Способности",
+            "Связанные_произведения",
+            "Url_изображения",
+            "Статус",
+            "Минимальное_безумие",
+            "Связи",
+            "Url_аудио",
+            "Url_видео",
+        ]
         writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
-        
+
         # Записываем данные, если они есть
-        if export_data:
-            writer.writerows(export_data)
-        
+        if export_data_csv:
+            writer.writerows(export_data_csv)
+        csv_content = output.getvalue()
+        output.close()
+
         return Response(
-            content=output.getvalue(),
+            content=csv_content.encode("utf-8"),
             headers={"Content-Disposition": "attachment; filename=bestiary_export.csv"},
-            media_type="text/csv"
+            media_type="text/csv; charset=utf-8",
         )
 
 
