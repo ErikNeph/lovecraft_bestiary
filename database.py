@@ -1,11 +1,11 @@
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 
 # Путь к базе данных SQLite с асинхронным драйвером
 DATABASE_URL = "sqlite+aiosqlite:///beastiary.db"
 
 # Создаём асинхронный движок
-engine = create_async_engine(DATABASE_URL, echo=False)  # echo=True для отладки, можно убрать
+engine = create_async_engine(DATABASE_URL, echo=True)  # echo=True для отладки, можно убрать
 
 
 # Создаём базовый класс для моделей (в 2.x используется DeclarativeBase вместо declarative_base())

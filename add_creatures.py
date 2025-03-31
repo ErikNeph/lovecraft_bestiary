@@ -5,6 +5,9 @@ from models.creature import CreatureDB
 
 
 async def add_creatures():
+    """
+    Добавляет в базу данных beastiary.db новых существ.
+    """
     async with AsyncSession(engine) as db:
         new_creatures = [
             CreatureDB(

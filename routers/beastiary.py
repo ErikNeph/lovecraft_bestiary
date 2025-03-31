@@ -212,14 +212,72 @@ async def get_random_creature(
         result = await db.execute(select(CreatureDB))
 
     creatures = result.scalars().all()
-    
+
     if not creatures:
         if category:
-            raise HTTPException(status_code=404, detail=f"В категории '{category}' нет существ!")
+            raise HTTPException(
+                status_code=404, detail=f"В категории '{category}' нет существ!"
+            )
         raise HTTPException(status_code=404, detail="Бестиарий пуст")
-    
+
     random_creature = choice(creatures)
     return transform_creature(random_creature)
+
+
+@router.get("/stats")
+async def get_beastiary_stats(db: AsyncSession = Depends(get_db)):
+    """Возвращает статистику бестиария: общее число существ, средний уровень опасности
+    и самого опасного.
+
+    Args:
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        dict: Словарь со статистикой бестиария.
+
+    Examples:
+        - `/beastiary/stats` - возвращает общую статистику.
+    """
+    # Получаем общее число существ
+    total_count = await db.scalar(select(func.count(CreatureDB.id)))
+
+    # Получаем средний уровень опасности
+    avg_danger = await db.scalar(select(func.avg(CreatureDB.danger_level)))
+
+    # Получаем самое безопасное существо
+    least_dangerous_result = await db.execute(
+        select(CreatureDB.name, CreatureDB.danger_level)
+        .order_by(CreatureDB.danger_level.asc())
+        .limit(1)
+    )
+    least_dangerous = least_dangerous_result.first()
+
+    # Получаем самое опасное существо
+    most_dangerous_result = await db.execute(
+        select(CreatureDB.name, CreatureDB.danger_level)
+        .order_by(CreatureDB.danger_level.desc())
+        .limit(1)
+    )
+    most_dangerous = most_dangerous_result.first()
+
+    stats = {
+        "Общее количество существ": total_count or 0,
+        "Средний уровень опасности": round(float(avg_danger), 1) if avg_danger else 0.0,
+        "Самое безопасное существо": {
+            "Имя": least_dangerous.name,
+            "Уровень опасности": least_dangerous.danger_level,
+        }
+        if least_dangerous
+        else None,
+        "Самое опасное существо": {
+            "Имя": most_dangerous.name,
+            "Уровень опасности": most_dangerous.danger_level,
+        }
+        if most_dangerous
+        else None,
+    }
+
+    return stats
 
 
 @router.post("/add")
