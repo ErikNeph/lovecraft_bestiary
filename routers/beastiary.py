@@ -3,7 +3,7 @@ import logging
 from io import StringIO
 from random import choice
 from sqlalchemy import select, func
-from sqlalchemy.sql import asc, desc
+from sqlalchemy.sql import asc, desc  # noqa: F401
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
