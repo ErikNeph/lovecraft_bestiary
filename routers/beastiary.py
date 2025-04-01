@@ -235,7 +235,7 @@ async def search_creatures(
 
     # Фильтр по имени
     if q:
-        query = query.filter(func.lower(CreatureDB.name).like(f"{q.lower()}%"))
+        query = query.filter(func.lower(CreatureDB.name).ilike(f"{q}%"))
 
     # Фильтр по категории
     if category:

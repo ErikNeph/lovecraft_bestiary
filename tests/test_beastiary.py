@@ -17,10 +17,11 @@ def test_root(client: TestClient):
 def test_list_bestiary(client: TestClient, setup_test_data):
     # Тест с пагинацией: первые 2 существа
     response = client.get("/beastiary/list?limit=2&offset=0")
-    assert response.status_code == 200
+    assert response.status_code == 200, f"Expected status 200, got {response.status_code}: {response.text}"
     data = response.json()
-    assert len(data["Существа"]) == 2
-    assert data["Всего"] == 3
+    print(f"Существа в ответе: {data['Существа']}")
+    assert len(data["Существа"]) == 2, f"Expected 2 creatures, got {len(data['Существа'])}"
+    assert data["Всего"] == 3, f"Expected total 3, got {data['Всего']}"
     assert data["Лимит"] == 2
     assert data["Смещение"] == 0
     assert data["Существа"][0]["Имя"] == "Йог-Сотот"
