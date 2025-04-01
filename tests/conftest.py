@@ -1,5 +1,5 @@
-import asyncio
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -43,7 +43,7 @@ app.dependency_overrides[get_db] = override_get_db
 
 
 # Фикстура для добавления тестовых данных
-@pytest.fixture
+@pytest_asyncio.fixture
 async def setup_test_data(db_session: AsyncSession):
     test_creatures = [
         CreatureDB(

@@ -74,7 +74,7 @@ def transform_creature(creature: CreatureDB, for_csv: bool = False) -> dict:
 @router.get("/export")
 async def export_bestiary(
     format: str = Query(
-        "json", description="Формат экспорта: 'json' или 'csv'", regex="^(json|csv)$"
+        "json", description="Формат экспорта: 'json' или 'csv'", pattern="^(json|csv)$"
     ),
     db: AsyncSession = Depends(get_db),
 ):
@@ -148,9 +148,11 @@ async def export_bestiary(
 
 @router.get("/list")
 async def list_bestiary(
-    limit: int = Query(10, ge=1, le=100, description="Количество записей на странице (максимум 100)"),
+    limit: int = Query(
+        10, ge=1, le=100, description="Количество записей на странице (максимум 100)"
+    ),
     offset: int = Query(0, ge=0, description="Смещение (с какой записи начинать)"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Возвращает список существ из бестиария с пагинацией.
 
@@ -165,26 +167,28 @@ async def list_bestiary(
             - "Всего": общее количество существ в бестиарии.
             - "Лимит": текущий лимит записей.
             - "Смещение": текущие смещение.
-    
+
     Raises:
         HTTPException: Если существа не найдены (404).
     """
     count_query = await db.execute(select(CreatureDB).with_only_columns(func.count()))
     total_count = count_query.scalar()
-    
+
     # Получаем записи с пагинацей
     result = await db.execute(select(CreatureDB).limit(limit).offset(offset))
     creatures = result.scalars().all()
-    
+
     if not creatures:
         raise HTTPException(status_code=404, detail="Существа не найдены")
-    
-    logger.info(f"Возвращено {len(creatures)} существ на бестиария с limit={limit}, offset={offset}")
+
+    logger.info(
+        f"Возвращено {len(creatures)} существ на бестиария с limit={limit}, offset={offset}"
+    )
     return {
         "Существа": [transform_creature(c) for c in creatures],
         "Всего": total_count,
         "Лимит": limit,
-        "Смещение": offset
+        "Смещение": offset,
     }
 
 

@@ -1,6 +1,6 @@
 from typing import Optional
 from sqlalchemy import Column, Integer, String, Text
-from pydantic import BaseModel, Field, conlist
+from pydantic import BaseModel, Field, ConfigDict ,conlist
 from database import Base
 
 
@@ -25,6 +25,8 @@ class CreatureDB(Base):
 
 
 class Creature(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     name: str = Field(..., min_length=3, max_length=50, description="Названия(имя) существа")
     description: str = Field(..., min_length=10, max_length=500, description="Описания существа")
     danger_level: int = Field(..., ge=1, le=100, description="Уровень угрозы (1-100)")
@@ -39,6 +41,3 @@ class Creature(BaseModel):
     relations: conlist(str, max_length=20) = Field([], description="Связанные существа (максимум 20)")  # type: ignore
     audio_url: Optional[str] = Field(None, max_length=350, description="URL аудиозаписи с описанием существ")
     video_url: Optional[str] = Field(None, max_length=350, description="URL видео о существе")
-    
-    class Config:
-        from_attributes = True  # Включаем поддержку ORM для преобразования из SQLAlchemy в Pydantic
