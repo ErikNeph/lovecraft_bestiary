@@ -12,6 +12,7 @@ from routers import beastiary
 # Принудительно устанавливаем кодировку консоли на UTF-8 (для Windows)
 if sys.platform == "win32":
     import os
+
     os.system("chcp 65001")  # Переключаем консоль на UTF-8
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -22,21 +23,24 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler("bestiary.log", encoding="utf-8"),
-        logging.StreamHandler(sys.stdout)
-    ]
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 logger = logging.getLogger(__name__)
 
 
 class PrettyJSONMiddleware(BaseHTTPMiddleware):
     """Middleware для возврата отформатированного JSON при экспорте."""
+
     async def dispatch(self, request: Request, call_next):
         # Если это JSON-ответ, форматируем его с отступами
         response = await call_next(request)
         if isinstance(response, JSONResponse):
             try:
                 content = json.loads(response.body.decode("utf-8"))
-                response.body = json.dumps(content, ensure_ascii=False, indent=2).encode("utf-8")
+                response.body = json.dumps(
+                    content, ensure_ascii=False, indent=2
+                ).encode("utf-8")
                 response.headers["Content-Length"] = str(len(response.body))
             except Exception as e:
                 logger.error(f"Ошибка при форматировании JSON: {e}")
@@ -55,7 +59,12 @@ async def lifespan(app: FastAPI):
     yield  # Здесь приложение работает
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    title="Lovecraft Beastiary API",
+    description="API для работы с бестиарием Лавкрафта: добавление, поиск и управление существами.",
+    version="1.0.0"
+)
 app.add_middleware(PrettyJSONMiddleware)
 app.include_router(beastiary.router, prefix="/beastiary", tags=["Beastiary"])
 

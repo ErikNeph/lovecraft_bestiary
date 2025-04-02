@@ -5,18 +5,14 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, func
 from database import Base, get_db
-from main import app
 from models.creature import CreatureDB
+from main import app
 
 # Создаём тестовую базу данных
 TEST_DATABASE_URL = "sqlite+aiosqlite:///test_beastiary.db"
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 TestSessionLocal = sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
-# Фикстура для клиента FastAPI
-@pytest.fixture
-def client():
-    return TestClient(app)
 
 # Асинхронная фикстура для тестовой базы данных
 @pytest_asyncio.fixture
@@ -31,14 +27,24 @@ async def db_session():
         yield session
         await session.rollback()
 
+
 # Переопределяем зависимость get_db для тестов
-async def override_get_db():
-    async with TestSessionLocal() as session:
-        yield session
+@pytest.fixture
+def override_get_db(db_session):
+    async def _override_get_db():
+        yield db_session
+    app.dependency_overrides[get_db] = _override_get_db
+    yield
+    app.dependency_overrides.clear()
 
-app.dependency_overrides[get_db] = override_get_db
 
-# Асинхронная фикстура для добавления тестовых данных
+# Фикстура для клиента
+@pytest.fixture
+def client(override_get_db):
+    return TestClient(app)
+
+
+# Фикстура для добавления тестовых данных
 @pytest_asyncio.fixture
 async def setup_test_data(db_session: AsyncSession):
     test_creatures = [
@@ -93,6 +99,6 @@ async def setup_test_data(db_session: AsyncSession):
     ]
     db_session.add_all(test_creatures)
     await db_session.commit()
-    # Проверяем, сколько записей добавлено
+
     count = await db_session.scalar(select(func.count(CreatureDB.id)))
     print(f"Добавлено записей в setup_test_data: {count}")

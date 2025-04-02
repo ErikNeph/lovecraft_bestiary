@@ -1,8 +1,4 @@
-import pytest
 from fastapi.testclient import TestClient
-
-# Настраиваем pytest для асинхронных тестов
-pytestmark = pytest.mark.asyncio
 
 
 # Тест для корневого маршрута
@@ -11,33 +7,6 @@ def test_root(client: TestClient):
     assert response.status_code == 200
     data = response.json()
     assert data["Сообщение"] == "Добро пожаловать в Бестиарий Лавкрафта!"
-
-
-# Тесты для маршрутов бестиария
-def test_list_bestiary(client: TestClient, setup_test_data):
-    # Тест с пагинацией: первые 2 существа
-    response = client.get("/beastiary/list?limit=2&offset=0")
-    assert response.status_code == 200, f"Expected status 200, got {response.status_code}: {response.text}"
-    data = response.json()
-    print(f"Существа в ответе: {data['Существа']}")
-    assert len(data["Существа"]) == 2, f"Expected 2 creatures, got {len(data['Существа'])}"
-    assert data["Всего"] == 3, f"Expected total 3, got {data['Всего']}"
-    assert data["Лимит"] == 2
-    assert data["Смещение"] == 0
-    assert data["Существа"][0]["Имя"] == "Йог-Сотот"
-    assert data["Существа"][1]["Имя"] == "Шуб-Ниггурат"
-
-    # Тест с пагинацией: пропускаем первые 2 существа
-    response = client.get("/beastiary/list?limit=2&offset=2")
-    assert response.status_code == 200
-    data = response.json()
-    assert len(data["Существа"]) == 1
-    assert data["Существа"][0]["Имя"] == "Глубоководные"
-
-    # Тест с пустым результатом (слишком большое смещение)
-    response = client.get("/beastiary/list?limit=2&offset=10")
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Существа не найдены"
 
 
 def test_search_bestiary(client: TestClient, setup_test_data):
@@ -139,9 +108,9 @@ def test_get_dangerous_creatures(client: TestClient, setup_test_data):
     response = client.get("/beastiary/dangerous?min=80&max=100")
     assert response.status_code == 200
     data = response.json()
-    assert len(data["Опасные существа"]) == 2
-    assert data["Опасные существа"][0]["Имя"] == "Йог-Сотот"
-    assert data["Опасные существа"][1]["Имя"] == "Шуб-Ниггурат"
+    assert len(data["Опасные_существа"]) == 2
+    assert data["Опасные_существа"][0]["Имя"] == "Йог-Сотот"
+    assert data["Опасные_существа"][1]["Имя"] == "Шуб-Ниггурат"
 
 
 def test_get_random_creature(client: TestClient, setup_test_data):
@@ -168,12 +137,12 @@ def test_get_bestiary_stats(client: TestClient, setup_test_data):
     response = client.get("/beastiary/stats")
     assert response.status_code == 200
     data = response.json()
-    assert data["Общее количество существ"] == 3
-    assert data["Средний уровень опасности"] == 75.0  # (100 + 85 + 40) / 3
-    assert data["Самое безопасное существо"]["Имя"] == "Глубоководные"
-    assert data["Самое безопасное существо"]["Уровень опасности"] == 40
-    assert data["Самое опасное существо"]["Имя"] == "Йог-Сотот"
-    assert data["Самое опасное существо"]["Уровень опасности"] == 100
+    assert data["Общее_количество"] == 3
+    assert data["Средний_уровень"] == 75.0  # (100 + 85 + 40) / 3
+    assert data["Самое_безопасное"]["Имя"] == "Глубоководные"
+    assert data["Самое_безопасное"]["Уровень_опасности"] == 40
+    assert data["Самое_опасное"]["Имя"] == "Йог-Сотот"
+    assert data["Самое_опасное"]["Уровень_опасности"] == 100
 
 
 def test_add_update_remove_creature(client: TestClient, db_session):

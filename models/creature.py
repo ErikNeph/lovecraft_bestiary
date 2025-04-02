@@ -41,3 +41,31 @@ class Creature(BaseModel):
     relations: conlist(str, max_length=20) = Field([], description="Связанные существа (максимум 20)")  # type: ignore
     audio_url: Optional[str] = Field(None, max_length=350, description="URL аудиозаписи с описанием существ")
     video_url: Optional[str] = Field(None, max_length=350, description="URL видео о существе")
+
+
+class CreatureUpdate(BaseModel):
+    description: Optional[str] = Field(None, min_length=10, max_length=500)
+    danger_level: Optional[int] = Field(None, ge=1, le=100)
+    habitat: Optional[str] = Field(None, min_length=2, max_length=100)
+    quote: Optional[str] = Field(None, max_length=400)
+    category: Optional[str] = Field(None, min_length=3, max_length=30)
+    abilities: Optional[conlist(str, max_length=15)] = Field(None)  # type: ignore
+    related_works: Optional[conlist(str, max_length=50)] = Field(None)  # type: ignore
+    image_url: Optional[str] = Field(None, max_length=350)
+    status: Optional[str] = Field(None, min_length=3, max_length=30)
+    min_insanity: Optional[int] = Field(None, ge=0, le=100)
+    relations: Optional[conlist(str, max_length=20)] = Field(None)  # type: ignore
+    audio_url: Optional[str] = Field(None, max_length=350)
+    video_url: Optional[str] = Field(None, max_length=350)
+
+
+# Определяем модель ответа для документации
+# class CreatureResponse(BaseModel):
+#     Id: int
+#     Имя: str
+#     Описание: str
+#     Уровень_опасности: int
+#     Среда_обитания: str
+#     Цитата: str
+#     Категория: str
+#     Способности: str

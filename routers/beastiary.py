@@ -7,8 +7,21 @@ from sqlalchemy.sql import asc, desc  # noqa: F401
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
-from models.creature import Creature, CreatureDB
 from database import get_db
+from models.creature import Creature, CreatureDB, CreatureUpdate
+from models.models_for_docs import (
+    ListBestiaryResponse,
+    SearchCreaturesResponse,
+    CreaturesByCategoryResponse,
+    CategoriesResponse,
+    DangerousCreaturesResponse,
+    RandomCreatureResponse,
+    StatsResponse,
+    AddCreatureResponse,
+    UpdateCreatureResponse,
+    RemoveCreatureResponse,
+    CreatureResponse,
+)
 
 
 router = APIRouter()
@@ -71,7 +84,13 @@ def transform_creature(creature: CreatureDB, for_csv: bool = False) -> dict:
     return data
 
 
-@router.get("/export")
+@router.get(
+    "/export",
+    response_model=ListBestiaryResponse,
+    summary="Экспортировать бестиарии",
+    description="Экспортируем всех существ из бестиария в формат JSON или CSV.",
+    responses={200: {"description": "Файл успешно экспортирован"}},
+)
 async def export_bestiary(
     format: str = Query(
         "json", description="Формат экспорта: 'json' или 'csv'", pattern="^(json|csv)$"
@@ -104,7 +123,12 @@ async def export_bestiary(
 
     if format == "json":
         return JSONResponse(
-            content={"Существа": export_data_json},
+            content={
+                "Существа": export_data_json,
+                "Всего": len(export_data_json),
+                "Лимит": len(export_data_json),
+                "Смещение": 0,
+            },
             headers={
                 "Content-Disposition": "attachment; filename=bestiary_export.json"
             },
@@ -146,7 +170,17 @@ async def export_bestiary(
         )
 
 
-@router.get("/list")
+@router.get(
+    "/list",
+    response_model=ListBestiaryResponse,
+    summary="Получить список существ из бестиария",
+    description="Возвращает список существ из бестиария с пагинацией.",
+    response_description="Список существ с информацией о пагинацией.",
+    responses={
+        200: {"description": "Список существ успешно возвращен"},
+        404: {"description": "Существа не найдены"},
+    },
+)
 async def list_bestiary(
     limit: int = Query(
         10, ge=1, le=100, description="Количество записей на странице (максимум 100)"
@@ -173,10 +207,16 @@ async def list_bestiary(
     """
     count_query = await db.execute(select(CreatureDB).with_only_columns(func.count()))
     total_count = count_query.scalar()
+    print(f"Отладка: Всего записей в базе: {total_count}")
 
     # Получаем записи с пагинацей
     result = await db.execute(select(CreatureDB).limit(limit).offset(offset))
     creatures = result.scalars().all()
+
+    print(f"Отладка: Найденные существа: {[creature.name for creature in creatures]}")
+    logger.info(
+        f"Возвращено {len(creatures)} существ на бестиария с limit={limit}, offset={offset}"
+    )
 
     if not creatures:
         raise HTTPException(status_code=404, detail="Существа не найдены")
@@ -192,8 +232,30 @@ async def list_bestiary(
     }
 
 
-@router.get("/info/{creature_name}")
+@router.get(
+    "/info/{creature_name}",
+    response_model=CreatureResponse,
+    summary="Получить информацию о существе",
+    description="Возвращает подробную информацию о существе по его имени.",
+    response_description="Данные о существе",
+    responses={
+        200: {"description": "Информация о существе успешно возрващена"},
+        404: {"description": "Существо не найдено в бестиарии"},
+    },
+)
 async def get_creature_info(creature_name: str, db: AsyncSession = Depends(get_db)):
+    """Получить информацию о существе по его имени.
+
+    Args:
+        creature_name (str): Имя существ (например, 'Йог-Сотот').
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        dict: Данные о существе в формате JSON.
+
+    Raises:
+        HTTPException: Если существо не найдено (404).
+    """
     result = await db.execute(
         select(CreatureDB).filter(CreatureDB.name == creature_name)
     )
@@ -203,8 +265,17 @@ async def get_creature_info(creature_name: str, db: AsyncSession = Depends(get_d
     return transform_creature(creature)
 
 
-# Маршрут для поиска по имени
-@router.get("/search")
+@router.get(
+    "/search",
+    response_model=SearchCreaturesResponse,
+    summary="Поиск существ",
+    description="Ищет существ по имени, категории и/или по уровню опасности.",
+    response_description="Список найденных существ.",
+    responses={
+        200: {"description": "Существа найдены"},
+        404: {"description": "Существа с заданными фильтрами не найдены"},
+    },
+)
 async def search_creatures(
     q: str = Query(None, min_length=1, description="Поиск по имени (начало имени)"),
     category: str = Query(None, description="Фильтр по категории"),
@@ -258,11 +329,32 @@ async def search_creatures(
     return {"Существа": [transform_creature(c) for c in creatures]}
 
 
-# Маршрут для фильтрации по категориям
-@router.get("/category/{category_name}")
+@router.get(
+    "/category/{category_name}",
+    response_model=CreaturesByCategoryResponse,
+    summary="Получить существ по категории",
+    description="Возвращает список существ, принадлежащих к указанной категории.",
+    response_description="Список существ в категории.",
+    responses={
+        200: {"description": "Существа в категории найдены"},
+        404: {"description": "Нет существ в указанной категории"},
+    },
+)
 async def get_creatures_by_category(
     category_name: str, db: AsyncSession = Depends(get_db)
 ):
+    """Получить список существ по категории.
+
+    Args:
+        category_name (str): Название категории (например 'Внешний Бог')
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        dict: Словарь с ключом 'Существа' и список существ.
+
+    Raises:
+        HTTPException: Если в категорий нет существ (404)
+    """
     result = await db.execute(
         select(CreatureDB).filter(CreatureDB.category == category_name)
     )
@@ -275,9 +367,16 @@ async def get_creatures_by_category(
     return {"Существа": [transform_creature(c) for c in creatures]}
 
 
-@router.get("/categories")
+@router.get(
+    "/categories",
+    response_model=CategoriesResponse,
+    summary="Получить список категорий",
+    description="Возвращает список всех категории и количество существ в каждой.",
+    response_description="Список категории с количеством существ",
+    responses={200: {"description": "Список категории успешно возвращён."}},
+)
 async def get_categories(db: AsyncSession = Depends(get_db)):
-    """Возвращает список всех категорий и количество существ в каждой.
+    """Возвращает список всех категорий и количество существ в каждой категорий.
 
     Args:
         db (AsyncSession): Асинхронная сессия для базы данных.
@@ -300,7 +399,14 @@ async def get_categories(db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.get("/dangerous")
+@router.get(
+    "/dangerous",
+    response_model=DangerousCreaturesResponse,
+    summary="Получить опасных существ",
+    description="Возвращает список существ с уровнем опасности в заданном диапазоне.",
+    response_description="Список опасных существ.",
+    responses={200: {"description": "Список опасных существ успешно возвращён"}},
+)
 async def get_dangerous_creatures(
     min: int = Query(
         0, ge=0, le=100, description="Минимальный уровень опасности (включительно)"
@@ -330,10 +436,20 @@ async def get_dangerous_creatures(
         )
     )
     creatures = result.scalars().all()
-    return {"Опасные существа": [transform_creature(c) for c in creatures]}
+    return {"Опасные_существа": [transform_creature(c) for c in creatures]}
 
 
-@router.get("/random")
+@router.get(
+    "/random",
+    response_model=RandomCreatureResponse,
+    summary="Получить случайное существо",
+    description="Возвращает случайное существо из бестиария, опционально из указанной категории.",
+    response_description="Случайное существо.",
+    responses={
+        200: {"description": "Случайное существо успешно возвращено"},
+        404: {"description": "Бестиарии пуст или в категории нет существ"},
+    },
+)
 async def get_random_creature(
     category: str = Query(
         None, description="Категория для случайного выбора (например, 'Внешний Бог')"
@@ -377,7 +493,14 @@ async def get_random_creature(
     return {"Существо": transform_creature(random_creature)}
 
 
-@router.get("/stats")
+@router.get(
+    "/stats",
+    response_model=StatsResponse,
+    summary="Получить статистику бестиария",
+    description="Возвращает статистику бестиария: общее число существ, средний уровень опасности, самое безопасное и самое опасное существо.",
+    response_description="Статистика бестиария",
+    responses={200: {"description": "Статистика успешно возвращена"}},
+)
 async def get_beastiary_stats(db: AsyncSession = Depends(get_db)):
     """Возвращает статистику бестиария: общее число существ, средний уровень опасности
     и самого опасного.
@@ -413,27 +536,27 @@ async def get_beastiary_stats(db: AsyncSession = Depends(get_db)):
 
     if total_count == 0:
         return {
-            "Общее количество существ": 0,
-            "Средний уровень опасности": 0.0,
-            "Самое безопасное существо": None,
-            "Самое опасное существо": None,
+            "Общее_количество": 0,
+            "Средний_уровень": 0.0,
+            "Самое_безопасное": None,
+            "Самое_опасное": None,
         }
 
     stats = {
-        "Общее количество существ": total_count or 0,
-        "Средний уровень опасности": round(float(avg_danger), 1) if avg_danger else 0.0,
-        "Самое безопасное существо": (
+        "Общее_количество": total_count or 0,
+        "Средний_уровень": round(float(avg_danger), 1) if avg_danger else 0.0,
+        "Самое_безопасное": (
             {
                 "Имя": least_dangerous.name,
-                "Уровень опасности": least_dangerous.danger_level,
+                "Уровень_опасности": least_dangerous.danger_level,
             }
             if least_dangerous
             else None
         ),
-        "Самое опасное существо": (
+        "Самое_опасное": (
             {
                 "Имя": most_dangerous.name,
-                "Уровень опасности": most_dangerous.danger_level,
+                "Уровень_опасности": most_dangerous.danger_level,
             }
             if most_dangerous
             else None
@@ -443,8 +566,30 @@ async def get_beastiary_stats(db: AsyncSession = Depends(get_db)):
     return stats
 
 
-@router.post("/add")
+@router.post(
+    "/add",
+    response_model=AddCreatureResponse,
+    summary="Добавить новое существо",
+    description="Добавляет новое существо в бестиарии.",
+    response_description="Сообщение об успешном добавлении",
+    responses={
+        200: {"description": "Существо успешно добавлено"},
+        400: {"description": "Существо уже существует в бестиарии"},
+    },
+)
 async def add_creature(creature: Creature, db: AsyncSession = Depends(get_db)):
+    """Добавляет новое существо в бестиарий.
+
+    Args:
+        creature (Creature): Данные нового существа (Pydantic-модели).
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        dict: Сообщение об успешном удалении.
+
+    Raises:
+        HTTPException: Если существа с таким именем уже есть (400).
+    """
     result = await db.execute(
         select(CreatureDB).filter(CreatureDB.name == creature.name)
     )
@@ -476,9 +621,21 @@ async def add_creature(creature: Creature, db: AsyncSession = Depends(get_db)):
     return {"Существо": creature.name, "Сообщение": "Существо добавлено в бестиарий!"}
 
 
-@router.put("/update/{creature_name}")
+@router.put(
+    "/update/{creature_name}",
+    response_model=UpdateCreatureResponse,
+    summary="Обновить данные существа.",
+    description="Обновляет данные существа в бестиарии по его имени",
+    response_description="Сообщение об успешном обновлении и обновленные данные существа.",
+    responses={
+        200: {"description": "Существо успешно обновлено"},
+        404: {"description": "Существо не найдено"},
+    },
+)
 async def update_creature(
-    creature_name: str, creature: Creature, db: AsyncSession = Depends(get_db)
+    creature_name: str,
+    creature_update: CreatureUpdate,
+    db: AsyncSession = Depends(get_db),
 ):
     """Обновляет данные существа в бестиарии по его имени.
 
@@ -494,33 +651,71 @@ async def update_creature(
         HTTPException: Если существо с указанным именем не найдено (404).
     """
     # Ищем существо по имени
-    result = await db.execute(
-        select(CreatureDB).filter(CreatureDB.name == creature_name)
-    )
-    db_creature = result.scalars().first()
+    query = select(CreatureDB).where(CreatureDB.name == creature_name)
+    result = await db.execute(query)
+    creature = result.scalar_one_or_none()
 
-    if not db_creature:
-        raise HTTPException(
-            status_code=404, detail=f"Существо '{creature_name}' не найдено!"
-        )
+    if not creature:
+        raise HTTPException(status_code=404, detail="Существо не найдено в бестиарии!")
 
-    # Обновляем поля если только они переданы
-    for key, value in creature.model_dump(exclude_unset=True).items():
-        if key in ["abilities", "related_works", "relations"]:
-            setattr(db_creature, key, ",".join(value))
-        else:
-            setattr(db_creature, key, value)
+    for key, value in creature_update.model_dump(exclude_unset=True).items():
+        if key in ["abilities", "related_works", "relations"] and value is not None:
+            value = ",".join(value)
+        if value is not None:
+            setattr(creature, key, value)
 
     await db.commit()
-    await db.refresh(db_creature)
+    await db.refresh(creature)
+
+    # Преобразуем объект creature в словарь с русифицированными ключами !ДЛЯ ТЕСТИРОВАНИЯ!.
+    creature_dict = {
+        "Id": creature.id,
+        "Имя": creature.name,
+        "Описание": creature.description,
+        "Уровень_опасности": creature.danger_level,
+        "Среда_обитания": creature.habitat,
+        "Цитата": creature.quote,
+        "Категория": creature.category,
+        "Способности": creature.abilities,
+        "Связанные_произведения": creature.related_works,
+        "Url_изображения": creature.image_url,
+        "Статус": creature.status,
+        "Минимальное_безумие": creature.min_insanity,
+        "Связи": creature.relations,
+        "Url_аудио": creature.audio_url,
+        "Url_видео": creature.video_url,
+    }
+
     return {
         "Сообщение": f"Существо '{creature_name}' обновлено",
-        "Существо": transform_creature(db_creature),
+        "Существо": creature_dict,
     }
 
 
-@router.delete("/remove/{creature_name}")
+@router.delete(
+    "/remove/{creature_name}",
+    response_model=RemoveCreatureResponse,
+    summary="Удалить существо",
+    description="Удаляет существо из бестиария по его имени.",
+    response_description="Сообщение об успешном удалении.",
+    responses={
+        200: {"description": "Существо успешно удалено"},
+        404: {"description": "Существо не найдено в бестиарии"},
+    },
+)
 async def remove_creature(creature_name: str, db: AsyncSession = Depends(get_db)):
+    """Удаляет существо из бестиария по его имени.
+
+    Args:
+        creature_name (str): Имя существа для удаления (например, 'Ктулху').
+        db (AsyncSession): Асинхронная сессия базы данных.
+
+    Returns:
+        dict: Сообщение об успешном удалении.
+
+    Raises:
+        HTTPException: Если существо не найдено (404).
+    """
     result = await db.execute(
         select(CreatureDB).filter(CreatureDB.name == creature_name)
     )
